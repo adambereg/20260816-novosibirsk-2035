@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
-import { assertUniqueSlugs, ContentValidationError, validateArticle } from '../src/content.js';
+import {
+  assertUniqueSlugs,
+  ContentValidationError,
+  validateArticle,
+  validateArticleAssets,
+} from '../src/content.js';
 import { renderMarkdown } from '../src/markdown.js';
-import { renderArticle } from '../src/render.js';
+import { renderArticle, renderArticlesIndex, renderHome } from '../src/render.js';
 
 const validData = {
   title: 'Тестовый материал',
@@ -21,6 +29,21 @@ function createArticle({ data = validData, body = '## Подзаголовок\n
     filenameSlug,
     filePath: `${filenameSlug}.md`,
   });
+}
+
+async function createPublicFixture(t, article, { includeCover = true } = {}) {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'novosibirsk-2035-test-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const publicDirectory = path.join(root, 'public');
+  await mkdir(publicDirectory, { recursive: true });
+
+  if (includeCover) {
+    const coverFile = path.join(publicDirectory, ...article.cover.split('/').filter(Boolean));
+    await mkdir(path.dirname(coverFile), { recursive: true });
+    await writeFile(coverFile, 'test image');
+  }
+
+  return publicDirectory;
 }
 
 test('content contract принимает корректную статью', () => {
@@ -71,6 +94,64 @@ test('content contract отклоняет неизвестное front matter п
   });
 });
 
+test('content contract принимает cover с существующим локальным файлом', async (t) => {
+  const article = createArticle({
+    data: {
+      ...validData,
+      cover: '/images/articles/test-article/cover.webp',
+      coverAlt: 'Зимняя улица Новосибирска',
+    },
+  });
+  const publicDirectory = await createPublicFixture(t, article);
+
+  await assert.doesNotReject(validateArticleAssets([article], publicDirectory));
+});
+
+test('content contract отклоняет cover без coverAlt', () => {
+  assert.throws(() => createArticle({
+    data: {
+      ...validData,
+      cover: '/images/articles/test-article/cover.webp',
+    },
+  }), /поле "coverAlt" должно быть непустой строкой/);
+});
+
+test('content contract отклоняет cover вне каталога статьи', () => {
+  assert.throws(() => createArticle({
+    data: {
+      ...validData,
+      cover: '/images/articles/another-article/cover.webp',
+      coverAlt: 'Изображение',
+    },
+  }), /поле "cover" должно указывать на файл внутри \/images\/articles\/test-article\//);
+
+  assert.throws(() => createArticle({
+    data: {
+      ...validData,
+      cover: 'https://example.test/cover.webp',
+      coverAlt: 'Изображение',
+    },
+  }), /поле "cover" должно указывать на файл внутри/);
+});
+
+test('content contract отклоняет отсутствующий cover файл', async (t) => {
+  const article = createArticle({
+    data: {
+      ...validData,
+      cover: '/images/articles/test-article/cover.webp',
+      coverAlt: 'Изображение',
+    },
+  });
+  const publicDirectory = await createPublicFixture(t, article, { includeCover: false });
+
+  await assert.rejects(validateArticleAssets([article], publicDirectory), (error) => {
+    assert.ok(error instanceof AggregateError);
+    assert.equal(error.errors.length, 1);
+    assert.match(error.errors[0].message, /cover файл не найден в public/);
+    return true;
+  });
+});
+
 test('Markdown renderer изолированно отклоняет raw HTML', () => {
   const article = createArticle({
     body: 'Обычный текст.\n\n<img src="x" onerror="alert(1)">',
@@ -101,6 +182,41 @@ test('Markdown images соблюдают article image convention', () => {
     body: '![Улица](https://example.test/street.jpg)',
   });
   assert.throws(() => renderMarkdown(externalImage), /изображение должно находиться/);
+
+  const anotherArticleImage = createArticle({
+    body: '![Улица](/images/articles/another-article/street.jpg)',
+  });
+  assert.throws(() => renderMarkdown(anotherArticleImage), /изображение должно находиться/);
+
+  const missingAlt = createArticle({
+    body: '![](/images/articles/test-article/street.jpg)',
+  });
+  assert.throws(() => renderMarkdown(missingAlt), /непустой alt-текст/);
+});
+
+test('статья без cover продолжает собираться без placeholder', () => {
+  const html = renderArticle(createArticle(), [], 'https://example.test');
+
+  assert.doesNotMatch(html, /class="article-cover"/);
+  assert.doesNotMatch(html, /property="og:image"/);
+});
+
+test('cover рендерится в статье, карточках и Open Graph metadata', () => {
+  const article = createArticle({
+    data: {
+      ...validData,
+      cover: '/images/articles/test-article/cover.webp',
+      coverAlt: 'Зимняя улица Новосибирска',
+    },
+  });
+  const articleHtml = renderArticle(article, [], 'https://example.test');
+  const homepage = renderHome([article], 'https://example.test');
+  const archive = renderArticlesIndex([article], 'https://example.test');
+
+  assert.match(articleHtml, /class="article-cover"[\s\S]*src="\/images\/articles\/test-article\/cover\.webp"/);
+  assert.match(articleHtml, /property="og:image" content="https:\/\/example\.test\/images\/articles\/test-article\/cover\.webp"/);
+  assert.match(homepage, /class="lead-cover"[\s\S]*src="\/images\/articles\/test-article\/cover\.webp"/);
+  assert.match(archive, /class="card-cover"[\s\S]*src="\/images\/articles\/test-article\/cover\.webp"/);
 });
 
 test('plain-text front matter metadata экранируется в generated HTML', () => {
@@ -120,4 +236,3 @@ test('plain-text front matter metadata экранируется в generated HTM
   assert.match(html, /&lt;b&gt;Категория&lt;\/b&gt;/);
   assert.match(html, /\\u003cscript>alert/);
 });
-

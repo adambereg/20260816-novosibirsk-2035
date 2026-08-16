@@ -1,5 +1,5 @@
 import { marked } from 'marked';
-import { ContentValidationError } from './content.js';
+import { ContentValidationError, isArticleImagePath } from './content.js';
 
 const ALLOWED_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
 
@@ -11,21 +11,6 @@ function isSafeLink(href) {
 
   try {
     return ALLOWED_PROTOCOLS.has(new URL(value).protocol);
-  } catch {
-    return false;
-  }
-}
-
-function isValidArticleImage(href, slug) {
-  const value = String(href || '').trim();
-  if (!value.startsWith('/')) return false;
-
-  try {
-    const url = new URL(value, 'https://content.invalid');
-    const directory = `/images/articles/${slug}/`;
-    return url.origin === 'https://content.invalid'
-      && url.pathname.startsWith(directory)
-      && url.pathname.length > directory.length;
   } catch {
     return false;
   }
@@ -48,7 +33,7 @@ export function renderMarkdown(article) {
       errors.push(`небезопасный URL в Markdown: ${token.href}`);
     }
 
-    if (token.type === 'image' && !isValidArticleImage(token.href, article.slug)) {
+    if (token.type === 'image' && !isArticleImagePath(String(token.href || '').trim(), article.slug)) {
       errors.push(`изображение должно находиться в /images/articles/${article.slug}/: ${token.href}`);
     }
 

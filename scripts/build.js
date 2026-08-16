@@ -1,7 +1,7 @@
 import { cp, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadArticles } from '../src/content.js';
+import { loadArticles, validateArticleAssets } from '../src/content.js';
 import { renderMarkdown } from '../src/markdown.js';
 import { render404, renderAbout, renderArticle, renderArticlesIndex, renderHome } from '../src/render.js';
 import { resolveSiteUrl } from '../src/site.js';
@@ -71,6 +71,7 @@ export async function buildSite({ rootDirectory = projectRoot, siteUrl = resolve
   for (const article of allArticles) {
     renderMarkdown(article);
   }
+  await validateArticleAssets(allArticles, publicDirectory);
   const published = allArticles.filter((article) => !article.draft);
   const drafts = allArticles.filter((article) => article.draft);
 

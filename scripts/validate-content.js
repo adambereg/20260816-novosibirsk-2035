@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadArticles } from '../src/content.js';
+import { loadArticles, validateArticleAssets } from '../src/content.js';
 import { renderMarkdown } from '../src/markdown.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -10,6 +10,7 @@ try {
   for (const article of articles) {
     renderMarkdown(article);
   }
+  await validateArticleAssets(articles, path.join(projectRoot, 'public'));
   const published = articles.filter((article) => !article.draft).length;
   const drafts = articles.length - published;
   console.log(`Content valid: ${articles.length} материал(а), ${published} опубликовано, ${drafts} черновик(ов).`);
@@ -23,4 +24,3 @@ try {
   }
   process.exitCode = 1;
 }
-

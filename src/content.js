@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import matter from 'gray-matter';
 
@@ -10,12 +10,15 @@ const ALLOWED_FIELDS = new Set([
   'category',
   'featured',
   'draft',
+  'cover',
+  'coverAlt',
 ]);
 
 const FIELD_LIMITS = {
   title: 120,
   description: 240,
   category: 60,
+  coverAlt: 240,
 };
 
 export class ContentValidationError extends Error {
@@ -49,6 +52,24 @@ function isRealIsoDate(value) {
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
 }
 
+export function isArticleImagePath(value, slug) {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//') || value.includes('\\')) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value, 'https://content.invalid');
+    const directory = `/images/articles/${slug}/`;
+    return url.origin === 'https://content.invalid'
+      && url.search === ''
+      && url.hash === ''
+      && url.pathname.startsWith(directory)
+      && url.pathname.length > directory.length;
+  } catch {
+    return false;
+  }
+}
+
 export function validateArticle({ data, body, filenameSlug, filePath }) {
   const errors = [];
 
@@ -80,6 +101,16 @@ export function validateArticle({ data, body, filenameSlug, filePath }) {
     }
   }
 
+  if (data.cover !== undefined) {
+    if (!isArticleImagePath(data.cover, data.slug)) {
+      errors.push(`поле "cover" должно указывать на файл внутри /images/articles/${data.slug}/`);
+    }
+
+    validateString(data, 'coverAlt', errors);
+  } else if (data.coverAlt !== undefined) {
+    validateString(data, 'coverAlt', errors);
+  }
+
   if (typeof body !== 'string' || body.trim() === '') {
     errors.push('Markdown body не должен быть пустым');
   }
@@ -96,9 +127,33 @@ export function validateArticle({ data, body, filenameSlug, filePath }) {
     category: data.category.trim(),
     featured: data.featured,
     draft: data.draft,
+    cover: data.cover?.trim(),
+    coverAlt: data.coverAlt?.trim(),
     body: body.trim(),
     sourcePath: filePath,
   };
+}
+
+export async function validateArticleAssets(articles, publicDirectory) {
+  const errors = [];
+
+  for (const article of articles) {
+    if (!article.cover) continue;
+
+    const target = path.join(publicDirectory, ...article.cover.split('/').filter(Boolean));
+    try {
+      const file = await stat(target);
+      if (!file.isFile()) throw new Error('not a file');
+    } catch {
+      errors.push(new ContentValidationError(article.sourcePath, [
+        `cover файл не найден в public/: ${article.cover}`,
+      ]));
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new AggregateError(errors, `Проверка файлов изображений завершилась с ошибками: ${errors.length}`);
+  }
 }
 
 export function assertUniqueSlugs(articles) {

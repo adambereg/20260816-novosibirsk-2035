@@ -32,13 +32,18 @@ function safeJson(value) {
   return JSON.stringify(value).replaceAll('<', '\\u003c');
 }
 
-function layout({ title, description, pathname, current, content, siteUrl, type = 'website', publishedTime, structuredData, noindex = false }) {
+function layout({ title, description, pathname, current, content, siteUrl, type = 'website', publishedTime, image, structuredData, noindex = false }) {
   const fullTitle = title === site.name ? title : `${title} — ${site.name}`;
   const canonical = absoluteUrl(siteUrl, pathname);
   const articleMeta = publishedTime
     ? `<meta property="article:published_time" content="${escapeHtml(publishedTime)}">`
     : '';
   const robotsMeta = noindex ? '<meta name="robots" content="noindex, follow">' : '';
+  const imageUrl = image ? absoluteUrl(siteUrl, image) : '';
+  const imageMeta = image
+    ? `<meta property="og:image" content="${escapeHtml(imageUrl)}">
+  <meta name="twitter:image" content="${escapeHtml(imageUrl)}">`
+    : '';
   const jsonLd = structuredData
     ? `<script type="application/ld+json">${safeJson(structuredData)}</script>`
     : '';
@@ -58,8 +63,9 @@ function layout({ title, description, pathname, current, content, siteUrl, type 
   <meta property="og:title" content="${escapeHtml(fullTitle)}">
   <meta property="og:description" content="${escapeHtml(description)}">
   <meta property="og:url" content="${canonical}">
+  ${imageMeta}
   ${articleMeta}
-  <meta name="twitter:card" content="summary">
+  <meta name="twitter:card" content="${image ? 'summary_large_image' : 'summary'}">
   <meta name="twitter:title" content="${escapeHtml(fullTitle)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
   <meta name="theme-color" content="#f1efe7">
@@ -87,9 +93,19 @@ function layout({ title, description, pathname, current, content, siteUrl, type 
 </html>`;
 }
 
+function articleImage(article, className, { lazy = true } = {}) {
+  if (!article.cover) return '';
+
+  const loading = lazy ? ' loading="lazy"' : '';
+  return `<figure class="${className}">
+    <img src="${escapeHtml(article.cover)}" alt="${escapeHtml(article.coverAlt)}"${loading} decoding="async">
+  </figure>`;
+}
+
 function articleCard(article, className = '') {
   return `<article class="article-card ${className}">
     <p class="card-meta"><span>${escapeHtml(article.category)}</span><time datetime="${article.publishedAt}">${formatDate(article.publishedAt)}</time></p>
+    ${articleImage(article, 'card-cover')}
     <h3><a href="/articles/${article.slug}/">${escapeHtml(article.title)}</a></h3>
     <p>${escapeHtml(article.description)}</p>
     <a class="text-link" href="/articles/${article.slug}/" aria-label="Читать: ${escapeHtml(article.title)}">Читать материал <span aria-hidden="true">↗</span></a>
@@ -106,6 +122,7 @@ export function renderHome(articles, siteUrl) {
         <div class="lead-number" aria-hidden="true">01</div>
         <div class="lead-copy">
           <p class="section-label">В фокусе · ${escapeHtml(lead.category)}</p>
+          ${articleImage(lead, 'lead-cover', { lazy: false })}
           <h2><a href="/articles/${lead.slug}/">${escapeHtml(lead.title)}</a></h2>
           <p>${escapeHtml(lead.description)}</p>
           <a class="button-link" href="/articles/${lead.slug}/">Открыть материал <span aria-hidden="true">→</span></a>
@@ -211,6 +228,7 @@ export function renderArticle(article, related, siteUrl) {
           <span>${readingMinutes} мин чтения</span>
         </div>
       </header>
+      ${articleImage(article, 'article-cover', { lazy: false })}
       <div class="article-rule" aria-hidden="true"><span>${article.publishedAt.slice(0, 4)}</span></div>
       <div class="prose">${body}</div>
     </article>
@@ -225,6 +243,7 @@ export function renderArticle(article, related, siteUrl) {
     siteUrl,
     type: 'article',
     publishedTime: article.publishedAt,
+    image: article.cover,
     structuredData: {
       '@context': 'https://schema.org',
       '@type': 'Article',
