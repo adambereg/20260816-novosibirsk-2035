@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { access, readFile } from 'node:fs/promises';
+import { access, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -13,13 +13,24 @@ const buildPromise = buildSite({ rootDirectory: projectRoot, siteUrl: 'https://e
 test('builder обнаруживает и собирает валидные Markdown articles', async () => {
   const articles = await loadArticles(contentDirectory);
   const result = await buildPromise;
+  const markdownFiles = (await readdir(contentDirectory, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'));
+  const expectedPublishedSlugs = articles
+    .filter((article) => !article.draft)
+    .map((article) => article.slug)
+    .sort();
+  const expectedDraftSlugs = articles
+    .filter((article) => article.draft)
+    .map((article) => article.slug)
+    .sort();
 
-  assert.equal(articles.length, 3);
-  assert.equal(result.published.length, 2);
+  assert.equal(articles.length, markdownFiles.length);
+  assert.deepEqual(result.published.map((article) => article.slug).sort(), expectedPublishedSlugs);
+  assert.deepEqual(result.drafts.map((article) => article.slug).sort(), expectedDraftSlugs);
   for (const article of result.published) {
     const page = await readFile(path.join(projectRoot, 'dist', 'articles', article.slug, 'index.html'), 'utf8');
     assert.match(page, /<article class="article-page">/);
-    assert.match(page, /<div class="prose"><h2>/);
+    assert.match(page, /<div class="prose">[\s\S]+<\/div>\s*<\/article>/);
   }
 });
 
@@ -28,10 +39,17 @@ test('builder генерирует /articles/<slug>/ и добавляет URL �
   const homepage = await readFile(path.join(projectRoot, 'dist', 'index.html'), 'utf8');
   const archive = await readFile(path.join(projectRoot, 'dist', 'articles', 'index.html'), 'utf8');
   const sitemap = await readFile(path.join(projectRoot, 'dist', 'sitemap.xml'), 'utf8');
+  const homepageSlugs = new Set(result.published.slice(0, 6).map((article) => article.slug));
+  const lead = result.published.find((article) => article.featured) || result.published[0];
+  if (lead) homepageSlugs.add(lead.slug);
 
   for (const article of result.published) {
     const url = `/articles/${article.slug}/`;
-    assert.match(homepage, new RegExp(url));
+    if (homepageSlugs.has(article.slug)) {
+      assert.match(homepage, new RegExp(url));
+    } else {
+      assert.doesNotMatch(homepage, new RegExp(url));
+    }
     assert.match(archive, new RegExp(url));
     assert.match(sitemap, new RegExp(url));
   }
@@ -42,22 +60,27 @@ test('draft: true исключает статью, ссылки и sitemap entry
   const homepage = await readFile(path.join(projectRoot, 'dist', 'index.html'), 'utf8');
   const archive = await readFile(path.join(projectRoot, 'dist', 'articles', 'index.html'), 'utf8');
   const sitemap = await readFile(path.join(projectRoot, 'dist', 'sitemap.xml'), 'utf8');
-  const draft = result.drafts[0];
 
-  assert.equal(result.drafts.length, 1);
-  assert.doesNotMatch(homepage, new RegExp(draft.slug));
-  assert.doesNotMatch(archive, new RegExp(draft.slug));
-  assert.doesNotMatch(sitemap, new RegExp(draft.slug));
-  await assert.rejects(
-    access(path.join(projectRoot, 'dist', 'articles', draft.slug, 'index.html')),
-    { code: 'ENOENT' },
-  );
+  assert.ok(result.drafts.length > 0, 'Нужен хотя бы один draft fixture для проверки исключения');
+  for (const draft of result.drafts) {
+    assert.doesNotMatch(homepage, new RegExp(draft.slug));
+    assert.doesNotMatch(archive, new RegExp(draft.slug));
+    assert.doesNotMatch(sitemap, new RegExp(draft.slug));
+    await assert.rejects(
+      access(path.join(projectRoot, 'dist', 'articles', draft.slug, 'index.html')),
+      { code: 'ENOENT' },
+    );
+  }
 });
 
 test('published articles сортируются по publishedAt DESC', async () => {
+  const articles = await loadArticles(contentDirectory);
   const result = await buildPromise;
-  const publishedDates = result.published.map((article) => article.publishedAt);
+  const expectedSlugs = articles
+    .filter((article) => !article.draft)
+    .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt) || a.slug.localeCompare(b.slug, 'en'))
+    .map((article) => article.slug);
+  const actualSlugs = result.published.map((article) => article.slug);
 
-  assert.deepEqual(publishedDates, ['2026-08-16', '2026-08-10']);
+  assert.deepEqual(actualSlugs, expectedSlugs);
 });
-
