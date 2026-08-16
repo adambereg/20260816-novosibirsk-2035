@@ -238,6 +238,19 @@ a:hover {
   max-width: 960px;
 }
 
+.lead-cover {
+  margin: 0 0 32px;
+}
+
+.lead-cover img,
+.card-cover img,
+.article-cover img,
+.prose img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .section-label,
 .eyebrow {
   margin: 0 0 22px;
@@ -314,6 +327,17 @@ a:hover {
 
 .card-meta span {
   color: var(--orange);
+}
+
+.card-cover {
+  margin: 24px 0 0;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.card-cover img {
+  height: 100%;
+  object-fit: cover;
 }
 
 .article-card h3 {
@@ -455,6 +479,10 @@ a:hover {
   margin-right: 20px;
 }
 
+.article-cover {
+  margin: 0 0 clamp(40px, 6vw, 82px);
+}
+
 .article-rule {
   min-height: 120px;
   display: flex;
@@ -509,6 +537,12 @@ a:hover {
 .prose ol,
 .prose blockquote {
   margin: 0 0 1.45em;
+}
+
+.prose img {
+  width: auto;
+  max-width: 100%;
+  margin: 2em auto;
 }
 
 .prose li + li {
@@ -791,4 +825,3 @@ a:hover {
     transition: none !important;
   }
 }
-
